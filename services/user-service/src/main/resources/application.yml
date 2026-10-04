@@ -1,0 +1,79 @@
+spring:
+  application:
+    name: user-service
+  profiles:
+    # Default when nothing else is set. SPRING_PROFILES_ACTIVE (docker, k8s) overrides it.
+    active: local
+  datasource:
+    username: ${DB_USERNAME:bookstore}
+    password: ${DB_PASSWORD:bookstore}
+  jpa:
+    # Schema changes are Flyway's job; Hibernate only verifies that entities match the schema.
+    hibernate:
+      ddl-auto: validate
+    # No lazy loading in the web layer: transactions end in the service layer.
+    open-in-view: false
+
+server:
+  port: 8081
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        # Ready only when the database is reachable.
+        readiness:
+          include: readinessState,db
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+---
+# Service runs on the host (./gradlew bootRun), infrastructure in Docker Compose.
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:postgresql://localhost:5432/user_db
+
+---
+# Everything runs in Docker Compose; service discovery is Compose's built-in DNS.
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:postgresql://postgres:5432/user_db
+
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        environment: docker
+
+---
+# Everything runs in Kubernetes; service discovery is Service DNS (<service>.<namespace>.svc.cluster.local).
+spring:
+  config:
+    activate:
+      on-profile: k8s
+  datasource:
+    url: jdbc:postgresql://postgres.bookstore.svc.cluster.local:5432/user_db
+
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        environment: k8s
