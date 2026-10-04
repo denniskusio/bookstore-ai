@@ -1,0 +1,15 @@
+# The build context is the repository root, so keep everything out that the image build does not need.
+# That makes the context small and stops local build output from invalidating Docker's layer cache.
+.git
+.github
+.idea
+.vscode
+.env
+**/.gradle
+**/build
+docs
+k8s
+infra
+scripts
+*.md
+docker-compose*.yml
