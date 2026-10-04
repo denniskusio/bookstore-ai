@@ -36,6 +36,11 @@ spring:
 server:
   port: 8080
   shutdown: graceful
+  # Explicit on purpose. When nothing is set, Spring Boot detects Kubernetes and switches to "native", which makes
+  # Reactor Netty report the client from X-Forwarded-For as the caller instead of the ingress. The gateway's own
+  # trusted-proxies check (above) would then compare the regex with the client address and discard every
+  # forwarded header. The gateway handles Forwarded / X-Forwarded-* itself.
+  forward-headers-strategy: none
 
 management:
   endpoints:

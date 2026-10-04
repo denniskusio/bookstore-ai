@@ -43,6 +43,10 @@ class ProfileConfigurationTests {
             String trustedProxies = context.getEnvironment()
                     .getProperty("spring.cloud.gateway.server.webflux.trusted-proxies");
             assertThat(caller).matches(trustedProxies);
+
+            // Without an explicit value Spring Boot switches to "native" on Kubernetes, and Reactor Netty then
+            // reports the forwarded client (not the ingress) as the caller - so the regex above never matches.
+            assertThat(context.getEnvironment().getProperty("server.forward-headers-strategy")).isEqualTo("none");
         }
     }
 }
