@@ -47,7 +47,10 @@ public class BookService {
         if (bookRepository.existsByIsbn(request.isbn())) {
             throw new DuplicateIsbnException(request.isbn());
         }
-        Book saved = bookRepository.save(new Book(
+        // saveAndFlush: the INSERT runs now. Hibernate fills the generated timestamps (and surfaces a unique
+        // violation) at flush time, and the response is built from this entity - a plain save() would defer
+        // the flush to the commit and return createdAt / updatedAt as null.
+        Book saved = bookRepository.saveAndFlush(new Book(
                 request.isbn(),
                 request.title(),
                 request.author(),

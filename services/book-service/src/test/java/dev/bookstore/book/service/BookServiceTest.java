@@ -37,7 +37,7 @@ class BookServiceTest {
     @Test
     void createStoresBookAndReturnsItsRepresentation() {
         given(bookRepository.existsByIsbn(ISBN)).willReturn(false);
-        given(bookRepository.save(any(Book.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(bookRepository.saveAndFlush(any(Book.class))).willAnswer(invocation -> invocation.getArgument(0));
 
         BookResponse response = bookService.create(request());
 
@@ -54,7 +54,7 @@ class BookServiceTest {
                 .isInstanceOf(DuplicateIsbnException.class)
                 .hasMessageContaining(ISBN);
 
-        verify(bookRepository, never()).save(any());
+        verify(bookRepository, never()).saveAndFlush(any());
     }
 
     @Test
