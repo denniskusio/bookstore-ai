@@ -8,6 +8,11 @@ spring:
     gateway:
       server:
         webflux:
+          # Secure by default: without this setting the gateway adds no X-Forwarded-* headers at all, and the
+          # services would build absolute URLs (e.g. the Location header of a created resource) from their
+          # internal host name. The regex names the proxies in front of the gateway whose own forwarded headers
+          # are trusted; here none, so only the loopback address is listed (the k8s profile trusts the ingress).
+          trusted-proxies: '127\.0\.0\.1'
           # Routes are identical in every environment; only the upstream base URLs differ,
           # and those come from the profile-specific blocks below (bookstore.upstream.*).
           routes:
@@ -87,6 +92,13 @@ spring:
   config:
     activate:
       on-profile: k8s
+  cloud:
+    gateway:
+      server:
+        webflux:
+          # The Traefik ingress runs in the cluster's pod network (kind default 10.244.0.0/16);
+          # its X-Forwarded-* headers describe the real client request and are trusted.
+          trusted-proxies: '10\.244\.\d+\.\d+'
 
 bookstore:
   upstream:
