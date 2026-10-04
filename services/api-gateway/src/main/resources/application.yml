@@ -8,11 +8,11 @@ spring:
     gateway:
       server:
         webflux:
-          # Secure by default: without this setting the gateway adds no X-Forwarded-* headers at all, and the
-          # services would build absolute URLs (e.g. the Location header of a created resource) from their
-          # internal host name. The regex names the proxies in front of the gateway whose own forwarded headers
-          # are trusted; here none, so only the loopback address is listed (the k8s profile trusts the ingress).
-          trusted-proxies: '127\.0\.0\.1'
+          # Secure by default: the gateway only sets Forwarded / X-Forwarded-* for callers whose address matches this
+          # regex, and without the setting it sets none. Then the services would build absolute URLs (e.g. the
+          # Location header of a created resource) from their internal host name. This block is the local profile:
+          # clients connect from the loopback address. The docker and k8s profiles name their own callers.
+          trusted-proxies: '127\.0\.0\.1|0:0:0:0:0:0:0:1'
           # Routes are identical in every environment; only the upstream base URLs differ,
           # and those come from the profile-specific blocks below (bookstore.upstream.*).
           routes:
@@ -70,6 +70,13 @@ spring:
   config:
     activate:
       on-profile: docker
+  cloud:
+    gateway:
+      server:
+        webflux:
+          # Docker Desktop shows the host's clients to the container as the address of the Compose network's
+          # gateway (172.16.0.0/12). Without a match the gateway would send no Forwarded headers.
+          trusted-proxies: '127\.0\.0\.1|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+'
 
 bookstore:
   upstream:
