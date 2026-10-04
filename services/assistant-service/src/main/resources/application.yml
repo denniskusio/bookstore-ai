@@ -1,0 +1,108 @@
+spring:
+  application:
+    name: assistant-service
+  profiles:
+    # Default when nothing else is set. SPRING_PROFILES_ACTIVE (docker, k8s) overrides it.
+    active: local
+  datasource:
+    username: ${DB_USERNAME:bookstore}
+    password: ${DB_PASSWORD:bookstore}
+  ai:
+    ollama:
+      # base-url is set per profile below; models are configurable in every environment.
+      chat:
+        model: ${OLLAMA_CHAT_MODEL:llama3.2:3b}
+      embedding:
+        model: ${OLLAMA_EMBEDDING_MODEL:nomic-embed-text}
+      init:
+        # Models are pulled by the ollama-init step (Compose / Kubernetes Job), never by the app.
+        pull-model-strategy: never
+    vectorstore:
+      pgvector:
+        # The vector_store table is created by a Flyway migration, not by Spring AI.
+        initialize-schema: false
+        table-name: vector_store
+        # Must match the embedding model: nomic-embed-text produces 768-dimensional vectors.
+        dimensions: 768
+        index-type: hnsw
+        distance-type: cosine-distance
+
+server:
+  port: 8084
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        # Ready depends on the database only - NOT on Ollama. The shop must stay up when the LLM is down.
+        readiness:
+          include: readinessState,db
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+---
+# Service runs on the host (./gradlew bootRun), infrastructure in Docker Compose.
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:postgresql://localhost:5432/assistant_db
+  kafka:
+    bootstrap-servers: localhost:9094
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+
+---
+# Everything runs in Docker Compose; service discovery is Compose's built-in DNS.
+# To use Ollama installed natively on the host, set OLLAMA_BASE_URL=http://host.docker.internal:11434.
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:postgresql://postgres:5432/assistant_db
+  kafka:
+    bootstrap-servers: kafka:9092
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://ollama:11434}
+
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        environment: docker
+
+---
+# Everything runs in Kubernetes; service discovery is Service DNS (<service>.<namespace>.svc.cluster.local).
+spring:
+  config:
+    activate:
+      on-profile: k8s
+  datasource:
+    url: jdbc:postgresql://postgres.bookstore.svc.cluster.local:5432/assistant_db
+  kafka:
+    bootstrap-servers: kafka.bookstore.svc.cluster.local:9092
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://ollama.bookstore.svc.cluster.local:11434}
+
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        environment: k8s
