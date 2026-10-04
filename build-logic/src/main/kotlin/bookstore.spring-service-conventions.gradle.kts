@@ -28,3 +28,8 @@ tasks.named<BootJar>("bootJar") {
     // Stable file name so Dockerfiles do not have to know the version.
     archiveFileName = "${project.name}.jar"
 }
+
+// Only the executable Boot jar is a deliverable; the "-plain" jar would just confuse Dockerfiles.
+tasks.named<Jar>("jar") {
+    enabled = false
+}
