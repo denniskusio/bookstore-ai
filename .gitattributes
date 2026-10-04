@@ -1,0 +1,6 @@
+# Normalise line endings to LF in the working tree so shell scripts, Dockerfiles
+# and YAML behave identically on Windows, macOS and Linux (and inside containers).
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.jar binary
