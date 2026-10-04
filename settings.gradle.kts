@@ -19,6 +19,7 @@ dependencyResolutionManagement {
 }
 
 include(
+    ":libs:service-common",
     ":services:api-gateway",
     ":services:user-service",
     ":services:book-service",
