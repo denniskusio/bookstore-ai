@@ -1,0 +1,206 @@
+# Local development stack: infrastructure + all five services.
+#
+#   docker compose up --build        start everything (first start downloads the models, see README)
+#   docker compose down              stop; add -v to also delete the data volumes
+#
+# Only the gateway (8080) is published for the application. Postgres, Kafka and Ollama are published
+# as well, so that services started from the IDE (profile "local") can use them.
+
+name: bookstore
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  environment: &service-env
+    SPRING_PROFILES_ACTIVE: docker
+    DB_USERNAME: ${POSTGRES_USER:-bookstore}
+    DB_PASSWORD: ${POSTGRES_PASSWORD:-bookstore}
+
+services:
+  # ---------------------------------------------------------------- infrastructure
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bookstore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bookstore}
+    ports:
+      - "5432:5432"
+    volumes:
+      # PostgreSQL 18 images keep PGDATA below /var/lib/postgresql/<major>/, so mount the parent directory.
+      - postgres-data:/var/lib/postgresql
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  kafka:
+    # Single node in KRaft mode: this process is broker and controller at once, no Zookeeper.
+    image: apache/kafka:4.3.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # INTERNAL: other containers (kafka:9092). EXTERNAL: clients on the host (localhost:9094).
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:9094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # One broker: the internal topics cannot be replicated.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    ports:
+      - "9094:9094"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
+  ollama:
+    # CPU only. For an NVIDIA GPU add a "deploy.resources.reservations.devices" entry (see Ollama docs).
+    # On macOS, native Ollama is much faster - see docker-compose.native-ollama.yml.
+    image: ollama/ollama:0.35.1
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  ollama-init:
+    # One-shot job: pulls the models into the shared volume, then exits. Pulling is idempotent, so
+    # later starts finish in seconds. The assistant-service does NOT wait for it: the shop must work
+    # without the LLM, so /assistant/ping simply fails until the models are there.
+    image: ollama/ollama:0.35.1
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:3b}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        ollama pull "$${OLLAMA_EMBEDDING_MODEL}"
+        ollama pull "$${OLLAMA_CHAT_MODEL}"
+    restart: "no"
+
+  # ---------------------------------------------------------------- application services
+  user-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    image: bookstore/user-service:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+
+  book-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/book-service/Dockerfile
+    image: bookstore/book-service:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+
+  order-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/order-service/Dockerfile
+    image: bookstore/order-service:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8083/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+
+  assistant-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/assistant-service/Dockerfile
+    image: bookstore/assistant-service:dev
+    environment:
+      <<: *service-env
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:3b}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8084/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+
+  api-gateway:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    image: bookstore/api-gateway:dev
+    ports:
+      - "8080:8080"
+    depends_on:
+      user-service:
+        condition: service_healthy
+      book-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      assistant-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  postgres-data:
+  kafka-data:
+  ollama-models:

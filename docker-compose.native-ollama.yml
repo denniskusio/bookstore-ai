@@ -1,0 +1,25 @@
+# Override: use Ollama installed natively on the host instead of the container.
+# On macOS this is much faster (Apple GPU via Metal); inside Docker the model runs on CPU only.
+#
+#   1. Install Ollama (https://ollama.com/download) and pull the models once on the host:
+#        ollama pull llama3.2:3b
+#        ollama pull nomic-embed-text
+#   2. Start the stack with this override on top of the base file:
+#        docker compose -f docker-compose.yml -f docker-compose.native-ollama.yml up --build
+#
+# Linux: the host's Ollama must listen on all interfaces so the container can reach it
+# (OLLAMA_HOST=0.0.0.0). Docker Desktop (macOS, Windows) needs no extra setup.
+
+services:
+  # Giving a service a profile that is never activated keeps it from starting.
+  ollama:
+    profiles: ["disabled"]
+  ollama-init:
+    profiles: ["disabled"]
+
+  assistant-service:
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    extra_hosts:
+      # Docker Desktop provides this name itself; on Linux it has to be mapped explicitly.
+      - "host.docker.internal:host-gateway"
