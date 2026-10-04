@@ -17,6 +17,14 @@ spring:
 server:
   port: 8083
   shutdown: graceful
+  # Honour X-Forwarded-* from the gateway so generated Location headers point at the public host.
+  # Safe here because the service is only reachable through the gateway / cluster network.
+  forward-headers-strategy: framework
+
+logging:
+  pattern:
+    # Plain-text logs (local profile) show the correlation ID; JSON logs (docker, k8s) include all MDC entries.
+    correlation: "[%X{correlationId:-}] "
 
 management:
   endpoints:

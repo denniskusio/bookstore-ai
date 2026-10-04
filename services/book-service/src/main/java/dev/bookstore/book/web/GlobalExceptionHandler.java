@@ -3,10 +3,12 @@ package dev.bookstore.book.web;
 import dev.bookstore.book.domain.BookNotFoundException;
 import dev.bookstore.book.domain.DuplicateIsbnException;
 import dev.bookstore.book.web.dto.FieldViolation;
+import dev.bookstore.common.correlation.CorrelationId;
 import java.net.URI;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.HttpHeaders;
@@ -76,11 +78,31 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return handleExceptionInternal(ex, body, headers, status, request);
     }
 
+    /** Runs for every exception Spring MVC handles itself, so those problem responses get the correlation ID too. */
+    @Override
+    protected ResponseEntity<Object> handleExceptionInternal(
+            Exception ex, Object body, HttpHeaders headers, HttpStatusCode statusCode, WebRequest request) {
+        ResponseEntity<Object> response = super.handleExceptionInternal(ex, body, headers, statusCode, request);
+        if (response != null && response.getBody() instanceof ProblemDetail problem) {
+            addCorrelationId(problem);
+        }
+        return response;
+    }
+
     private static ProblemDetail problem(HttpStatus status, String title, String type, String detail) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
         problem.setTitle(title);
         problem.setType(problemType(type));
+        addCorrelationId(problem);
         return problem;
+    }
+
+    /** Lets a client quote the ID when reporting a problem; it is the key to all log lines of that request. */
+    private static void addCorrelationId(ProblemDetail problem) {
+        String correlationId = MDC.get(CorrelationId.MDC_KEY);
+        if (correlationId != null) {
+            problem.setProperty("correlationId", correlationId);
+        }
     }
 
     private static URI problemType(String type) {

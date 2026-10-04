@@ -27,6 +27,11 @@ server:
   # Safe here because the service is only reachable through the gateway / cluster network.
   forward-headers-strategy: framework
 
+logging:
+  pattern:
+    # Plain-text logs (local profile) show the correlation ID; JSON logs (docker, k8s) include all MDC entries.
+    correlation: "[%X{correlationId:-}] "
+
 management:
   endpoints:
     web:

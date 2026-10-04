@@ -3,6 +3,8 @@ plugins {
 }
 
 dependencies {
+    implementation(project(":libs:service-common"))
+
     // Spring AI is not managed by the Boot BOM, so its BOM is imported explicitly.
     implementation(platform(libs.spring.ai.bom))
     implementation("org.springframework.ai:spring-ai-starter-model-ollama")

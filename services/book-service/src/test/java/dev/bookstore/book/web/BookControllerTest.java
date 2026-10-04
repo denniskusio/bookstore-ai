@@ -9,22 +9,26 @@ import dev.bookstore.book.domain.DuplicateIsbnException;
 import dev.bookstore.book.service.BookService;
 import dev.bookstore.book.web.dto.BookResponse;
 import dev.bookstore.book.web.dto.CreateBookRequest;
+import dev.bookstore.common.web.CorrelationIdAutoConfiguration;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 /**
  * Web-layer slice test: real Spring MVC (validation, JSON, exception handling), mocked service.
  * Fast, needs no database, and pins down the HTTP contract including the error format.
  */
 @WebMvcTest(BookController.class)
+@Import(CorrelationIdAutoConfiguration.class) // the filter is auto-configured in the app, but not part of the slice
 class BookControllerTest {
 
     private static final String VALID_BODY = """
@@ -100,6 +104,23 @@ class BookControllerTest {
                 .bodyJson()
                 .hasPathSatisfying("$.title", title -> title.assertThat().isEqualTo("Book not found"))
                 .hasPathSatisfying("$.instance", instance -> instance.assertThat().isEqualTo("/books/" + id));
+    }
+
+    @Test
+    void problemResponsesCarryTheCorrelationIdFromDomainAndFrameworkErrors() {
+        UUID id = UUID.randomUUID();
+        given(bookService.findById(id)).willThrow(new BookNotFoundException(id));
+
+        MvcTestResult notFound = mvc.get().uri("/books/{id}", id).header("X-Correlation-Id", "trace-abc-123").exchange();
+        assertThat(notFound).hasStatus(HttpStatus.NOT_FOUND).headers().hasValue("X-Correlation-Id", "trace-abc-123");
+        assertThat(notFound).bodyJson()
+                .hasPathSatisfying("$.correlationId", value -> value.assertThat().isEqualTo("trace-abc-123"));
+
+        // Errors raised by Spring MVC itself (here: validation) are enriched as well.
+        MvcTestResult invalid = mvc.post().uri("/books").contentType(MediaType.APPLICATION_JSON).content("{}")
+                .header("X-Correlation-Id", "trace-abc-456").exchange();
+        assertThat(invalid).hasStatus(HttpStatus.BAD_REQUEST).bodyJson()
+                .hasPathSatisfying("$.correlationId", value -> value.assertThat().isEqualTo("trace-abc-456"));
     }
 
     @Test
