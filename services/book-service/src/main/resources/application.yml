@@ -13,10 +13,19 @@ spring:
       ddl-auto: validate
     # No lazy loading in the web layer: transactions end in the service layer.
     open-in-view: false
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        # Clients cannot request unbounded pages.
+        max-page-size: 100
 
 server:
   port: 8082
   shutdown: graceful
+  # Honour X-Forwarded-* from the gateway so generated Location headers point at the public host.
+  # Safe here because the service is only reachable through the gateway / cluster network.
+  forward-headers-strategy: framework
 
 management:
   endpoints:
