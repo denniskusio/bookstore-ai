@@ -24,3 +24,6 @@ Thumbs.db
 
 # Claude Code per-machine settings
 .claude/settings.local.json
+
+# Generated local credentials for the kind overlay (see k8s/overlays/local/secrets.env.example)
+k8s/overlays/*/secrets.env
